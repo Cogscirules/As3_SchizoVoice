@@ -1,0 +1,429 @@
+---
+title: "Assignment2_Part1_VoiceInSchizophrenia"
+author: "Riccardo Fusaroli"
+date: "July 17, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+setwd("C:/Users/Bruger/Desktop/Programming/Semester 3/asm. 5")
+
+library(pacman)
+
+
+p_load(dplyr, lmerTest, ggplot2, stringr, plyr, caret, modelr, ModelMetrics, tidyverse, MASS, simr, MuMIn, cvTools, hydroGOF, lsr, pastecs, crqa, dostats, readr)
+
+
+#MUTUAL() -->tells you mutual information, how easy it is to predict the next datapoint in timeseries, point in time. Conservative parameter --> the first dip before it goes up again.
+#optimize parameters, crqa, visualize, if you try to match files with demographic data etc - 
+
+# 0 = control, 1 = schiz
+#studyN = 3 different studies
+#D = diagnosis
+#S = subject
+#Trial = 8 diffeent videos
+
+```
+
+## Assignment 2 - Part 1 - Assessing voice in schizophrenia
+
+Schizophrenia has been associated with "inappropriate" voice, sometimes monotone, sometimes croaky. A few studies indicate that pitch might be an index of schizophrenia. However, an ongoing meta-analysis of the literature (which you will have a go at in the last assignment) indicates that pitch mean and standard deviation are only weak indicators of diagnosis. Can we do better with our new fancy complex skills?
+
+The corpus you are asked to analyse is a set of voice recordings from people with schizophrenia (just after first diagnosis) and 1-1 matched controls (on gender, age, education). Each participant watched 10 videos of triangles moving across the screen and had to describe them (so you have circa 10 recordings per person). I have already extracted the pitch once every 10 milliseconds and you will have to use this data to assess differences in the voice.
+
+N.B. Question to be answered via email to Celine: can you characterize voice in schizophrenia as acoustically different? Report the methods you used to answer this question and the results from the analyses. Add a couple of lines trying to interpret the results (make sense of the difference). E.g. People with schizophrenia tend to have high-pitched voice, and present bigger swings in their prosody than controls. Add a couple of lines describing limitations of the data/analyses if any is relevant.
+
+N.B. There are looots of files to be dealt with. Probably too many for your computer. This is a challenge for you. Some (complementary) possible strategies: You can select a subset of files only (and you have to justify your choice). You can learn how to use the apply() or map() functions. You can coordinate with classmates.
+
+1. In the course of this assignment you have to first select one datafile and figure out how to:
+
+- Extract "standard" descriptors of pitch: Mean, standard deviation, range
+- Extract less "standard" descriptors of pitch you can think of (e.g. median, iqr, mean absoluted deviation, coefficient of variation)
+- Extract "complex" descriptors: recurrence quantification analysis
+
+```{r}
+pitch_1 = read.delim("Pitch/Study1D0S101T1_f0.txt", header = T)
+
+
+# ---- Standard descriptions of pitch
+
+mean_1 = mean(pitch_1$f0)
+mean_1
+#139.9203 = mean of pitch in this recording
+
+sd_1 = sd(pitch_1$f0)
+sd_1
+#31.38 = standard deviation
+
+range_1 = range(pitch_1$f0)
+range_1
+range_min = range_1[1]
+range_max = range_1[2]
+#83.71 = lowest data point (pitch) / 225.72 = highest datapoint (pitch)
+
+standard = data.frame(mean_1, sd_1, range_min, range_max)
+
+
+# ---- Less standard descriptions
+
+median_1 = median(pitch_1$f0)
+median_1
+#125.59 = median of pitch --> "den midsterse værdi i et sorteret datasæt"
+
+iqr_1 = IQR(pitch_1$f0)
+iqr_1
+#42.1375 = interquartile range between the first 25 % of distribution and last 25 % of the distribution (from 25 - 75 %)
+
+mean_abs = aad(pitch_1$f0)
+mean_abs
+#25.65087  
+
+evry_1 = stat.desc(pitch_1$f0, norm = T)
+evry_1
+#coef variation = 2.243059 times 10 :)
+# or
+
+coef_var = sd(pitch_1$f0, na.rm=TRUE)/mean(pitch_1$f0, na.rm = TRUE)*100
+coef_var
+#coef variation = 22.4309
+
+#bind
+less = data.frame(median_1, iqr_1, mean_abs, coef_var)
+
+
+
+
+# ---- Complex descriptions = recurrence plot
+
+pitch_2 = read.delim("Pitch/Study1D0S102T1_f0.txt", header = T)
+
+#Finding the optimal parameters: run on all pairs:
+
+#list you ned for optimizeparam function
+par = list(lgM =  20, steps = seq(1, 6, 1),  radiusspan = 100,  radiussample = 40, normalize = 0,  rescale = 0,  mindiagline = 2,  minvertline = 2,  tw = 0,  whiteline = FALSE,  recpt = FALSE,  fnnpercent = 10,  typeami = "mindip")
+
+#get parameters for rqa
+ans = optimizeParam(pitch_2$f0, pitch_2$f0, par, min.rec = 3.5, max.rec = 4.5)
+ans
+
+#try() --> selvom den ikke får en værdi så looper den videre/crasher ikke
+
+#Choose a common value for delay, emb.dim and radius
+#File has to be imported twise since crqa plot compares two timeseries
+Results=crqa(pitch_2$f0, pitch_2$f0, delay=26, embed=7, radius=25.47183,normalize=0,rescale=0,mindiagline = 2,minvertline = 2)
+
+#Represent the plot:
+RP=Results$RP
+RP = matrix(as.numeric(RP), nrow = ncol(RP)) 
+cols = c("white","blue4")
+image(RP, xlab = "", ylab = "", col = cols)
+
+#Save variables from results to seperate variables
+
+RR = Results$RR
+DET = Results$DET
+MAXL = Results$maxL #maximal trajectory
+L = Results$L #mean trajectory
+ENTR = Results$ENTR
+LAM = Results$LAM
+TT = Results$TT
+
+#bind
+rqa = data.frame(RR, DET, MAXL, L, ENTR, LAM, TT)
+
+
+#bind all the combined frames above
+descriptors = data.frame(info, standard, less, rqa)
+
+
+
+
+
+
+
+
+```
+
+
+
+2. Second you will have to turn the code into a function and loop through all the files (or even better use apply/sapply/lapply)
+- Remember to extract the relevant information from the file names (Participant, Diagnosis, Trial, Study)
+
+```{r}
+
+#You should get all the descriptors (mean,sd, reccurence etc) for each txt file so after you run the loop you'll end up with big dataframe that has 1 row per each txt fil
+#Make a function that contains the above code (mean, etc, requrrence plot) which applies the code to all the files in the Pitch folder and puts them into a dataframe with 1 row per file, and mean/sd/time/f0/etc as columns).
+
+
+
+#Study1 D0 S 117 T3_f0.txt
+
+
+pitch_files=list.files(path = "Pitch", full.names = T)
+
+participant = NULL
+diagnosis = NULL
+trial = NULL
+study = NULL
+mean = NULL
+sd = NULL
+range_min = NULL
+range_max = NULL
+median = NULL
+iqr = NULL
+abs_dev = NULL
+coef_var = NULL
+delay= NULL
+radius = NULL
+embed = NULL
+recur_plot = NULL
+n = 1
+
+#Study1 D0 S 117 T3_f0.txt
+
+for (i in pitch_files){ 
+  x = read_delim(i, delim = "\t") 
+  x = x$f0 
+  ID = str_extract(i, "S\\d+")
+  participant[n]=str_extract(ID, "\\d+")[1]
+  d=str_extract(i, "D\\d+")
+  diagnosis[n] = str_extract(d, "\\d+")
+  t=str_extract(i, "T\\d+")
+  trial[n]=str_extract(t, "\\d+")
+  s=str_extract(i, "y\\d+")
+  study[n]=str_extract(s, "\\d+")
+
+  mean[n] = mean(x,na.rm = T)
+  sd[n] = sd(x,na.rm=T)
+  range = range(x)
+  range_min[n] = range[1]
+  range_max[n] = range[2]
+  
+  median[n] = median(x, na.rm=T)
+  iqr[n] = IQR(x, na.rm=T)
+  abs_dev[n] = aad(x, na.rm = T)
+  coef_var[n] = sd(x,na.rm=TRUE)/mean(x, na.rm=TRUE)*100
+  
+  
+  V = try(optimizeParam(x, x, par, min.rec = 3.5, max.rec = 4.5))
+  if (length(V)>1){
+    
+    radius[n]=V$radius
+    delay[n]=V$delay
+    embed[n]=V$emddim
+    
+  }
+  else{ radius[n] = NA
+  delay[n] = NA
+  embed[n] = NA
+  }
+  n = n+1
+  
+  print(n)
+} 
+  
+df1 = data.frame(participant, diagnosis, trial, study, mean, sd, range_min, range_max, median, iqr, abs_dev, coef_var, radius, delay, embed)
+
+
+
+r = median(df1$radius, na.rm = T)
+d = median(df1$delay, na.rm = T)
+e = median(df1$embed, na.rm = T)
+
+
+RR = NULL
+DET = NULL
+maxL= NULL
+L = NULL
+ENTR = NULL
+LAM = NULL
+TT = NULL
+n=1
+  
+
+pitch_files=list.files(path = "Pitch", full.names = T)
+
+
+for (i in pitch_files){
+  x = read_delim(i, delim = "\t") 
+  x = x$f0
+  
+  
+  ID = str_extract(i, "S\\d+")
+  participant[n]=str_extract(ID, "\\d+")[1]
+  di=str_extract(i, "D\\d+")
+  diagnosis[n] = str_extract(di, "\\d+")
+  t=str_extract(i, "T\\d+")
+  trial[n]=str_extract(t, "\\d+")
+  s=str_extract(i, "y\\d+")
+  study[n]=str_extract(s, "\\d+")
+  
+  
+  mean[n] = mean(x,na.rm = T)
+  sd[n] = sd(x,na.rm=T)
+  range = range(x)
+  range_min[n] = range[1]
+  range_max[n] = range[2]
+  
+  median[n] = median(x, na.rm=T)
+  iqr[n] = IQR(x, na.rm=T)
+  abs_dev[n] = aad(x, na.rm = T)
+  coef_var[n] = sd(x,na.rm=TRUE)/mean(x, na.rm=TRUE)*100
+    
+    
+  A = try(crqa(x, x, delay = d, embed = e, radius = r, normalize=0, rescale=0, mindiagline = 2, minvertline = 2)) 
+  
+  if(length(A)<1){
+    RR[n] = NA
+    DET[n] = NA
+    maxL[n] = NA
+    L[n] = NA
+    ENTR[n] = NA
+    LAM[n] = NA
+    TT[n] = NA
+
+  }
+  else{
+    RR[n] = A$RR
+    DET[n] = A$DET
+    maxL[n] = A$maxL
+    L[n] = A$L
+    ENTR[n] = A$ENTR
+    LAM[n] = A$LAM
+    TT[n] = A$TT
+    }
+  n = n+1
+  print(n)
+}
+
+df2 = data.frame(RR, DET, maxL, L, ENTR, LAM, TT)
+View(df2)
+
+final_df = merge(df1,df2)
+
+write.csv(final_df, file = "final_df.csv")
+
+View(final_df)
+
+```
+
+
+3. Make one model per acoustic feature and test whether you can observe significant difference due to Diagnosis. Tip: Which other fixed factors should you control for (that is, include in the model)? Which random ones?
+- Bonus points: cross-validate the model and report the betas and standard errors from all rounds to get an idea of how robust the estimates are. 
+3a. Is study a significant predictor in these models? What should you infer from this? Does study interact with diagnosis? What should you infer from this?
+
+
+```{r}
+final_df = read.delim("final_df.csv", sep= ",")
+
+View(final_df)
+
+
+model_rangemin = lmer(range_min ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_rangemin)
+#significant min range by diagnosis and trial
+
+
+model_rangemax = lmer(range_max ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_rangemax)
+#insignificant
+
+
+model_mean = lmer(mean ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_mean)
+#significant by trial and diagnosis
+
+model_sd = lmer(sd ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_sd)
+#insignificant by diagnosis, bt significant by trial
+
+model_median = lmer(median ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_median)
+#Significant both by diagnosis and trial
+
+model_mad = lmer(abs_dev ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_mad)
+#insignificant by diagnosis, but significant by trial
+
+model_cov = lmer(coef_var ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_cov)
+#Significant
+
+model_iqr = lmer(iqr ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_iqr)
+#JUST significant in diagnosis, significant by trial
+
+model_RR = lmer(RR ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_RR)
+#Insignificant
+
+model_DET = lmer(DET ~ diagnosis + trial + (1+diagnosis|participant),final_df) 
+summary(model_DET) 
+#Insignificant
+
+model_maxL = lmer(maxL ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_maxL)
+#insignifiant
+
+model_L = lmer(L ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_L)
+
+
+model_ENTR = lmer(ENTR ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_ENTR)
+
+
+model_LAM = lmer(LAM ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_LAM)
+
+
+model_TT = lmer(TT ~ diagnosis + trial + (1+diagnosis|participant),final_df)
+summary(model_TT)
+
+
+
+
+
+
+
+
+
+```
+
+
+4. Bonus Question: Compare effect size of diagnosis across the different measures. Which measure seems most sensitive?
+- Tip: to compare across measures you need to put all of them on the same scale, that is, you need to "standardize" them (z-score)
+
+
+```{r}
+
+
+
+```
+
+
+5. Bonus question. In the Clinical Info file you have additional information about the participants. Which additional parameters (e.g. age, gender) should we control for? Report the effects.
+
+```{r}
+
+
+
+```
+
+
+
+6. Write a paragraph reporting methods and results
+
+```{r}
+
+
+
+```
+
+
+
+[Next assignment: can we use these measures to build a tool that diagnoses people from voice only?]
+
+## N.B. Remember to save the acoustic features of voice in a separate file, so to be able to load them next time
